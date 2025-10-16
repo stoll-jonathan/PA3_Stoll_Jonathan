@@ -1,4 +1,28 @@
-#include<pthread.h>
+#define _POSIX_C_SOURCE 199309L
+
+#include <stdlib.h>
+#include <stdio.h>
+#include <pthread.h>
+#include <ctype.h>
+#include <time.h>
+#include <sys/types.h>
+#include <unistd.h>
+#include <sys/syscall.h>
+#include <string.h>
+#include <sys/mman.h>
+
+#define ANSI_COLOR_GRAY    "\x1b[30m"
+#define ANSI_COLOR_RED     "\x1b[31m"
+#define ANSI_COLOR_GREEN   "\x1b[32m"
+#define ANSI_COLOR_YELLOW  "\x1b[33m"
+#define ANSI_COLOR_BLUE    "\x1b[34m"
+#define ANSI_COLOR_MAGENTA "\x1b[35m"
+#define ANSI_COLOR_CYAN    "\x1b[36m"
+#define ANSI_COLOR_WHITE   "\x1b[37m"
+#define ANSI_COLOR_RESET   "\x1b[0m"
+#define TERM_CLEAR() printf("\033[H\033[J")
+#define TERM_GOTOXY(x,y) printf("\033[%d;%dH", (y), (x))
+
 
 typedef struct _thread_data_t {
     int localTid;
@@ -6,17 +30,122 @@ typedef struct _thread_data_t {
     int numVals;
     pthread_mutex_t *lock;
     long long int *totalSum;
-} _thread_data_t;
+} thread_data_t;
 
 void* arraysum(void*);
+void print_progress(pid_t, size_t);
 
 int main(int argc, char* argv[]) {
 
+    // validate param count
+    if (argc != 2) {
+        printf("%s\n", "Not enough parameters");
+        return -1;
+    }
+
+    int arr[2000000];
+    long long totalSum = 0;
+    int threadsRequested = atoi(argv[1]);
+
+    pthread_mutex_t lock;
+    pthread_mutex_init(&lock, NULL);
+
+
+    // create and initialize array of thread datas
+    thread_data_t threadData[threadsRequested];
+    for (int i = 0; i < threadsRequested; i++) {
+        threadData[i].localTid = i;
+        threadData[i].data = arr;
+        threadData[i].numVals = sizeof(arr)/sizeof(arr[0]);
+        threadData[i].lock = &lock; // each thread uses the same lock
+        threadData[i].totalSum = &totalSum; // each thread uses the same totalSum variable
+    }
+
+    // create and initialize array of pthreads
+    pthread_t threads[threadsRequested];
+    for (int i = 0; i < threadsRequested; i++) {
+        pthread_create(&threads[i], NULL, arraySum, &threadData[i]);
+    }
+
+    // join all threads together
+    for (int i = 0; i < threadsRequested; i++) {
+        pthread_join(threads[i], NULL);
+    }
+
+    return 0;
 }
 
 void* arraySum(void* data) {
     // Cast void* data to thread_data_t*
     thread_data_t* threadData = (thread_data_t*)data;
 
+    while (1) {
+        long latency_max = 0;
+
+        long long int threadSum = 0;
+        for (int i = 0; i < threadData->numVals; i++) {
+            long latency;
+            struct timespec start, end;
+            clock_gettime(CLOCK_MONOTONIC, &start);
+
+            threadSum += threadData->data[i];
+
+            clock_gettime(CLOCK_MONOTONIC, &end);
+            latency = (end.tv_sec - start.tv_sec) * 1000000000L + (end.tv_nsec - start.tv_nsec);
+
+            if (latency > latency_max)
+                latency_max = latency;
+        }
+
+        // Add threadSum to the shared totalSum
+        pthread_mutex_lock(threadData->lock);
+        *(threadData->totalSum) += threadSum;
+        pthread_mutex_unlock(threadData->lock);
+
+        print_progress(threadData->localTid, latency_max);
+    }
+
     return NULL;
+}
+
+void print_progress(pid_t localTid, size_t value) {
+    pid_t tid = syscall(__NR_gettid);
+
+    TERM_GOTOXY(0,localTid+1);
+
+	char prefix[256];
+    size_t bound = 100;
+    sprintf(prefix, "%d: %ld (ns) \t[", tid, value);
+	const char suffix[] = "]";
+	const size_t prefix_length = strlen(prefix);
+	const size_t suffix_length = sizeof(suffix) - 1;
+	char *buffer = calloc(bound + prefix_length + suffix_length + 1, 1);
+	size_t i = 0;
+
+	strcpy(buffer, prefix);
+	for (; i < bound; ++i)
+	{
+	    buffer[prefix_length + i] = i < value/10000 ? '#' : ' ';
+	}
+	strcpy(&buffer[prefix_length + i], suffix);
+        
+        if (!(localTid % 7)) 
+            printf(ANSI_COLOR_WHITE "\b%c[2K\r%s\n" ANSI_COLOR_RESET, 27, buffer);  
+        else if (!(localTid % 6)) 
+            printf(ANSI_COLOR_BLUE "\b%c[2K\r%s\n" ANSI_COLOR_RESET, 27, buffer);  
+        else if (!(localTid % 5)) 
+            printf(ANSI_COLOR_RED "\b%c[2K\r%s\n" ANSI_COLOR_RESET, 27, buffer);  
+        else if (!(localTid % 4)) 
+            printf(ANSI_COLOR_GREEN "\b%c[2K\r%s\n" ANSI_COLOR_RESET, 27, buffer);  
+        else if (!(localTid % 3)) 
+            printf(ANSI_COLOR_CYAN "\b%c[2K\r%s\n" ANSI_COLOR_RESET, 27, buffer);  
+        else if (!(localTid % 2)) 
+            printf(ANSI_COLOR_YELLOW "\b%c[2K\r%s\n" ANSI_COLOR_RESET, 27, buffer);  
+        else if (!(localTid % 1)) 
+            printf(ANSI_COLOR_MAGENTA "\b%c[2K\r%s\n" ANSI_COLOR_RESET, 27, buffer);  
+        else
+            printf("\b%c[2K\r%s\n", 27, buffer);
+
+	fflush(stdout);
+	free(buffer);
 }
