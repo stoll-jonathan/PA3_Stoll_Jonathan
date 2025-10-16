@@ -3,13 +3,11 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <pthread.h>
-#include <ctype.h>
 #include <time.h>
 #include <sys/types.h>
 #include <unistd.h>
 #include <sys/syscall.h>
 #include <string.h>
-#include <sys/mman.h>
 
 #define ANSI_COLOR_GRAY    "\x1b[30m"
 #define ANSI_COLOR_RED     "\x1b[31m"
@@ -32,7 +30,7 @@ typedef struct _thread_data_t {
     long long int *totalSum;
 } thread_data_t;
 
-void* arraysum(void*);
+void* arraySum(void*);
 void print_progress(pid_t, size_t);
 
 int main(int argc, char* argv[]) {
@@ -43,7 +41,8 @@ int main(int argc, char* argv[]) {
         return -1;
     }
 
-    int arr[2000000];
+    int arrLength = 2000000;
+    int *arr = malloc(arrLength * sizeof(int));
     long long totalSum = 0;
     int threadsRequested = atoi(argv[1]);
 
@@ -56,7 +55,7 @@ int main(int argc, char* argv[]) {
     for (int i = 0; i < threadsRequested; i++) {
         threadData[i].localTid = i;
         threadData[i].data = arr;
-        threadData[i].numVals = sizeof(arr)/sizeof(arr[0]);
+        threadData[i].numVals = arrLength;
         threadData[i].lock = &lock; // each thread uses the same lock
         threadData[i].totalSum = &totalSum; // each thread uses the same totalSum variable
     }
@@ -72,6 +71,7 @@ int main(int argc, char* argv[]) {
         pthread_join(threads[i], NULL);
     }
 
+    free(arr);
     return 0;
 }
 
