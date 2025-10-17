@@ -1,0 +1,23 @@
+1. Latency of all threads fluctuates between ~30000 and 900000 ns. Latencies are constantly changing within that range and no threads seem to be consistently higher or lower than any others.
+
+2. Initially, voluntary context switches are very rare, occurring only once each minute or so. Nonvoluntary switches seem to occur ~25 times a second. 
+
+In FIFO, voluntary switches remain about as common, but nonvoluntary switches slow to about 1 per second. Changing priority doesn't seem to affect these results for either scheduling system.
+
+sudo chrt -p -f 50 7038
+sudo chrt -p -f 75 7038
+sudo chrt -p -f 25 7038
+sudo chrt -p -o 0 7038
+
+3. The dedicated thread's latency stabilized. Fewer context switches occurred all around.
+
+sudo cset set -c 0-6 system
+sudo cset set -c 7 dedicated
+sudo cset proc -m -f root -t system
+sudo cset proc -k -f root -t system
+sudo cset proc -m -p 7037 -t dedicated
+
+4. Involuntary context switches stop altogether. Latency remains stable. Priority doesn't seem to have any effect.
+
+sudo chrt -p -f 75 7038
+sudo chrt -p -f 25 7038
